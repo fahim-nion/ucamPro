@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>UCAM PRO</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-base-300 min-h-screen">
+
+    <!-- LOGIN -->
+    <div id="login-screen" class="flex items-center justify-center min-h-screen">
+        <div class="card w-96 bg-base-100 shadow-2xl p-10 rounded-[2.5rem]">
+            <h1 class="text-3xl font-black text-center mb-8 italic">UCAM<span class="text-primary">PRO</span></h1>
+            <input type="text" id="user-id" placeholder="Student ID" class="input input-bordered mb-4 rounded-2xl" />
+            <input type="password" id="user-pass" placeholder="Password" class="input input-bordered mb-6 rounded-2xl" />
+            <button id="login-btn" onclick="handleLogin()" class="btn btn-primary rounded-2xl">Login</button>
+            <p id="login-status" class="text-error text-xs mt-4 text-center font-bold"></p>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard" class="hidden flex flex-col md:flex-row min-h-screen">
+        <aside class="w-full md:w-80 bg-base-100 p-8 border-r border-white/5 flex flex-col">
+            <div class="flex justify-between items-center mb-10">
+                <h2 class="text-2xl font-black italic">UCAM<span class="text-primary">PRO</span></h2>
+                <input type="checkbox" class="toggle toggle-primary" id="theme-toggle" checked />
+            </div>
+            <nav class="space-y-2 flex-1">
+                <button onclick="showSection('profile')" id="btn-profile" class="btn btn-ghost w-full justify-start rounded-xl gap-4"><i class="fa-solid fa-user"></i> Profile</button>
+                <button onclick="showSection('attendance')" id="btn-attendance" class="btn btn-ghost w-full justify-start rounded-xl gap-4"><i class="fa-solid fa-check"></i> Attendance</button>
+                <button onclick="showSection('results')" id="btn-results" class="btn btn-ghost w-full justify-start rounded-xl gap-4"><i class="fa-solid fa-star"></i> Results</button>
+                <button onclick="showSection('routine')" id="btn-routine" class="btn btn-ghost w-full justify-start rounded-xl gap-4"><i class="fa-solid fa-clock"></i> Routine</button>
+            </nav>
+            <div id="sync-indicator" class="mt-auto flex items-center gap-2 text-[10px] font-bold opacity-40 uppercase tracking-widest">
+                <span class="loading loading-spinner loading-xs"></span> <span>Ready</span>
+            </div>
+        </aside>
+
+        <main class="flex-1 p-10 overflow-y-auto">
+            <div id="section-content" class="max-w-5xl mx-auto"></div>
+        </main>
+    </div>
+
+    <script>
+        let APP_DATA = {};
+        const themeToggle = document.getElementById('theme-toggle');
+        themeToggle.onchange = (e) => document.documentElement.setAttribute('data-theme', e.target.checked ? 'dark' : 'light');
+
+        async function handleLogin() {
+            const id = document.getElementById('user-id').value;
+            const pass = document.getElementById('user-pass').value;
+            const btn = document.getElementById('login-btn');
+            const status = document.getElementById('login-status');
+
+            if (!id || !pass) {
+                status.innerText = "Please enter ID and Password";
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading loading-spinner"></span> Logging in...';
+            status.innerText = "";
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: id, password: pass })
+                });
+
+                const result = await res.json();
+
+                if (!res.ok) {
+                    // This shows the REAL error (like Timeout) instead of just "Invalid"
+                    throw new Error(result.error || "Login Failed");
+                }
+                
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('dashboard').classList.remove('hidden');
+                
+                showSection('profile');
+                prefetchAll();
+            } catch (e) {
+                status.innerText = "❌ " + e.message;
+                btn.disabled = false;
+                btn.innerText = "Try Again";
+            }
+        }
+        async function prefetchAll() {
+            const sections = ['profile', 'attendance', 'results', 'routine'];
+            const statusText = document.querySelector('#sync-indicator span:last-child');
+            
+            for (const s of sections) {
+                try {
+                    statusText.innerText = `SCRAPING ${s.toUpperCase()}...`;
+                    const res = await fetch(`/api/${s}`);
+                    const data = await res.json();
+                    
+                    if (data.error) {
+                        console.error(`Error in ${s}:`, data.error);
+                        continue; // Skip this one if it failed
+                    }
+
+                    APP_DATA[s] = data;
+                    if (window.currentSection === s) renderData(s);
+                    
+                    // Wait 3 seconds so the UCAM server resets its state for the next tab
+                    await new Promise(r => setTimeout(r, 3000)); 
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+            document.getElementById('sync-indicator').innerHTML = "✅ ALL DATA SYNCED";
+        }
+
+        function showSection(s) {
+            window.currentSection = s;
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('bg-primary/20', 'text-primary'));
+            document.getElementById(`btn-${s}`).classList.add('bg-primary/20', 'text-primary');
+            if (!APP_DATA[s]) {
+                document.getElementById('section-content').innerHTML = '<div class="flex h-[50vh] items-center justify-center"><span class="loading loading-ring loading-lg"></span></div>';
+                return;
+            }
+            renderData(s);
+        }
+
+        function renderData(s) {
+            const container = document.getElementById('section-content');
+            const data = APP_DATA[s];
+
+            if (!data || (Array.isArray(data) && data.length === 0)) {
+                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64"><span class="loading loading-spinner text-primary"></span><p class="opacity-50 mt-4">Processing ${s}...</p></div>`;
+                return;
+            }
+
+            const DAY_NAMES = { "Sun": "Sunday", "Mon": "Monday", "Tue": "Tuesday", "Wed": "Wednesday", "Thu": "Thursday", "Fri": "Friday", "Sat": "Saturday" };
+            const DAY_ORDER = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+            // 1. PROFILE OVERVIEW (With Today's Schedule)
+            if (s === 'profile') {
+                const todayAbbr = DAY_ORDER[new Date().getDay()];
+                const todayFull = DAY_NAMES[todayAbbr] || "Today";
+                
+                const todaysClasses = Array.isArray(APP_DATA.routine) 
+                    ? APP_DATA.routine.filter(c => c.day && c.day.includes(todayAbbr))
+                    : [];
+
+                const name = data.name || "Student";
+                container.innerHTML = `
+                    <div class="animate-in fade-in duration-500">
+                        <h1 class="text-5xl font-black mb-10 italic tracking-tight">Hello, ${name.split(' ')[0]}</h1>
+                        
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <!-- Bio Cards -->
+                            <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="bg-base-100 p-8 rounded-[2rem] shadow-xl border border-white/5">
+                                    <p class="opacity-30 text-[10px] font-bold uppercase mb-2 tracking-widest">Email</p>
+                                    <p class="text-lg font-bold truncate">${data.email || 'N/A'}</p>
+                                </div>
+                                <div class="bg-base-100 p-8 rounded-[2rem] shadow-xl border border-white/5">
+                                    <p class="opacity-30 text-[10px] font-bold uppercase mb-2 tracking-widest">Phone</p>
+                                    <p class="text-lg font-bold">${data.phone || 'N/A'}</p>
+                                </div>
+                                <div class="bg-base-100 p-8 rounded-[2rem] shadow-xl border border-white/5">
+                                    <p class="opacity-30 text-[10px] font-bold uppercase mb-2 tracking-widest">Date of Birth</p>
+                                    <p class="text-lg font-bold">${data.dob || 'N/A'}</p>
+                                </div>
+                                <div class="bg-base-100 p-8 rounded-[2rem] shadow-xl border border-white/5">
+                                    <p class="opacity-30 text-[10px] font-bold uppercase mb-2 tracking-widest">Religion</p>
+                                    <p class="text-lg font-bold">${data.religion || 'N/A'}</p>
+                                </div>
+                            </div>
+
+                            <!-- Today's Schedule Widget -->
+                            <div class="bg-primary text-primary-content p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                                <h2 class="text-xl font-black mb-6 flex items-center justify-between">
+                                    <span>Today's Classes</span>
+                                    <span class="badge badge-outline border-white/30 text-white text-xs">${todayFull}</span>
+                                </h2>
+                                <div class="space-y-4">
+                                    ${todaysClasses.length > 0 ? todaysClasses.map(c => `
+                                        <div class="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                                            <p class="text-[11px] font-black uppercase opacity-70 mb-1">${c.time_slot}</p>
+                                            <p class="font-bold text-base leading-snug">${c.course_title}</p>
+                                            <div class="flex justify-between items-center mt-3 pt-2 border-t border-white/10 text-xs font-medium">
+                                                <span class="opacity-80"><i class="fa-solid fa-user-tie mr-1"></i> ${c.teacher}</span>
+                                                <span class="badge badge-ghost badge-sm text-[10px] font-bold">Room ${c.room}</span>
+                                            </div>
+                                        </div>
+                                    `).join('') : `
+                                        <div class="py-12 text-center opacity-70">
+                                            <i class="fa-solid fa-mug-hot text-4xl mb-3"></i>
+                                            <p class="text-xs font-bold uppercase tracking-widest">No classes scheduled for today</p>
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+            }
+
+            // 2. ATTENDANCE
+            if (s === 'attendance') {
+                let cards = data.map(c => `
+                    <div class="bg-base-100 p-8 rounded-[2rem] shadow-xl border border-white/5 flex flex-col justify-between">
+                        <div>
+                            <span class="text-[10px] font-black opacity-30 uppercase tracking-widest">${c.course_code}</span>
+                            <h3 class="font-bold text-base mt-1 mb-4 h-12 overflow-hidden leading-snug">${c.title}</h3>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-baseline mb-2">
+                                <span class="text-3xl font-black text-primary">${c.present_percentage}</span>
+                                <span class="text-[10px] font-bold opacity-40">TOTAL: ${c.total_class}</span>
+                            </div>
+                            <progress class="progress progress-primary w-full h-2" value="${parseFloat(c.present_percentage)}" max="100"></progress>
+                        </div>
+                    </div>
+                `).join('');
+                container.innerHTML = `<h1 class="text-4xl font-black mb-10 tracking-tight">Attendance</h1><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">${cards}</div>`;
+            }
+
+            // 3. RESULTS
+            if (s === 'results') {
+                let rows = (data.results || []).map(r => `
+                    <tr class="hover border-base-200">
+                        <td class="p-4 font-bold">${r.semester}</td>
+                        <td><span class="badge badge-ghost">${r.credits} Credits</span></td>
+                        <td>${r.gpa}</td>
+                        <td class="font-black text-primary text-lg">${r.cgpa}</td>
+                    </tr>
+                `).join('');
+                container.innerHTML = `
+                    <div class="flex justify-between items-end mb-10">
+                        <div>
+                            <h1 class="text-4xl font-black tracking-tight">Academic History</h1>
+                            <p class="text-xs font-bold opacity-40 uppercase tracking-widest mt-1">Semester Breakdown</p>
+                        </div>
+                        <div class="bg-primary text-primary-content px-8 py-5 rounded-[2rem] text-center shadow-xl shadow-primary/20">
+                            <p class="text-[10px] font-bold uppercase tracking-widest opacity-70">Overall CGPA</p>
+                            <p class="text-4xl font-black">${data.final_cgpa || '0.00'}</p>
+                        </div>
+                    </div>
+                    <div class="bg-base-100 rounded-[2rem] shadow-xl overflow-hidden border border-white/5">
+                        <table class="table w-full">
+                            <thead><tr class="bg-base-200 border-none text-[10px] uppercase tracking-widest font-black opacity-40"><th>Semester</th><th>Credits</th><th>GPA</th><th>CGPA</th></tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>`;
+            }
+
+            // 4. ROUTINE (Sorted by Days)
+            if (s === 'routine') {
+                // Group classes by day
+                const grouped = {};
+                DAY_ORDER.forEach(day => grouped[day] = []);
+
+                data.forEach(item => {
+                    const matchedDay = DAY_ORDER.find(d => item.day.includes(d));
+                    if (matchedDay) {
+                        grouped[matchedDay].push(item);
+                    }
+                });
+
+                let routineHtml = '';
+
+                DAY_ORDER.forEach(dayKey => {
+                    const classes = grouped[dayKey];
+                    if (classes.length === 0) return;
+
+                    const dayFull = DAY_NAMES[dayKey];
+                    const classCards = classes.map(c => `
+                        <div class="bg-base-100 p-6 rounded-2xl shadow-md border border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="badge badge-primary badge-sm font-bold">${c.course_code}</span>
+                                    <span class="text-xs opacity-50 font-bold"><i class="fa-solid fa-location-dot"></i> Room ${c.room}</span>
+                                </div>
+                                <h4 class="text-lg font-bold leading-tight">${c.course_title}</h4>
+                            </div>
+                            
+                            <div class="flex flex-col md:items-end min-w-[200px]">
+                                <p class="text-sm font-black text-primary"><i class="fa-solid fa-clock mr-1"></i> ${c.time_slot}</p>
+                                <p class="text-xs opacity-60 font-medium mt-1"><i class="fa-solid fa-user-tie mr-1"></i> ${c.teacher}</p>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    routineHtml += `
+                        <div class="mb-8">
+                            <h3 class="text-xl font-black mb-4 flex items-center gap-2 text-primary">
+                                <i class="fa-solid fa-calendar-day"></i> ${dayFull}
+                            </h3>
+                            <div class="space-y-3">${classCards}</div>
+                        </div>`;
+                });
+
+                container.innerHTML = `
+                    <div class="animate-in fade-in duration-500">
+                        <h1 class="text-4xl font-black mb-2 tracking-tight">Class Routine</h1>
+                        <p class="text-xs font-bold opacity-40 uppercase tracking-widest mb-10">Weekly Academic Schedule</p>
+                        ${routineHtml || '<p class="opacity-50">No routine entries found.</p>'}
+                    </div>`;
+            }
+        }
+    </script>
+</body>
+</html>
