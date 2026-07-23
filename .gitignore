@@ -4,3 +4,6 @@
 
 # But allow example env files
 !.env.example
+
+# Error logs/folder
+errors/
