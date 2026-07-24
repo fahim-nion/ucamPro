@@ -1,0 +1,5 @@
+node_modules
+errors
+login_failure.png
+.env
+.git

@@ -6,7 +6,7 @@ import routineRouter from './api/routine.js';
 import attendanceRouter from './api/attendance.js';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json()); // Critical for reading login data
 app.use(express.static('public')); // Serves the UI
